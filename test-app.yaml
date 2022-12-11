@@ -1,0 +1,73 @@
+apiVersion: apps/v1				# создаем контроллер развертывания
+kind: Deployment
+metadata:
+  name: test_app
+  labels:
+    app.kubernetes.io/name: test_app
+spec:							# можно воспользоваться affinity и принудительно разнести поды по зонам и нодам, но алгоритмы kubernetes это делают умолчательно
+  replicas: 1
+  selector:  					# будет применено к объектам,имеющим нужную метку
+    matchLabels:
+      app.kubernetes.io/name: test_app
+  template:	
+    metadata:
+	  labels:
+	    app.kubernetes.io/name: test_app
+    spec:						#описываем требуемое состояние объекта
+      containers:
+        - name: test_app
+          image: k8s.gcr.io/test_app_image:1.0			#используемый образ с тэгом
+          ports:										# указываем порты
+            - containerPort: 80
+            - containerPort: 443
+          readinessProbe:								# проверка готовности на принятие трафика подом. можно так же прикрутить проверку livenessProbe
+              httpGet:
+                path: /
+                port: 80
+              initialDelaySeconds: 10					# задержка первой проверки 10 сек, т.к. на инициализацию сервиса уходит до 10сек
+              periodSeconds: 3
+          resources:									# указываем ресурсы по ТЗ
+            limits:
+              memory: "135Mi"							#примерное ровное количество потребляемой памяти не гарантирует отстутсвие выхода за диапазон 128, укажем немного выше планку
+              cpu: "500m"								#CPU указано из разряда "с запасом". Если есть более точные результаты нагрузочного тестирования - можно скорректировать
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+          
+		  
+	
+		
+--------------------------------------------------------------------
+
+apiVersion: v1											#объединяем поды, тип оставляем стандартный, ClusterIP
+kind: Service
+metadata:
+  name: test_app
+  labels:
+    app.kubernetes.io/name: test_app
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+    - name: https
+      protocol: TCP
+      port: 443
+  selector:
+    app.kubernetes.io/name: test_app
+
+--------------------------------------------------------------------------------------
+
+apiVersion: autoscaling/v1								#пропишем автоматическое масштабирование в зависимости от нагрузки						
+kind: HorizontalPodAutoscaler
+metadata:
+  name: test_app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: test_app
+  minReplicas: 1
+  maxReplicas: 4										#указываем максимальное число подов и планируемую нагрузку CPU
+  targetCPUUtilizationPercentage: 50
+
